@@ -1,17 +1,12 @@
-# Referencias de implementación
+# Referencias técnicas
 
-- PDF del usuario: API Logística(2).pdf.
-- [API pública: Swagger](https://backend-reto1-log-stica-env-os-olive.vercel.app/docs). Copia del contrato: `backend-openapi.json`.
-- [Preview solicitado](https://backend-reto1-log-stica-env-git-94d7c4-dannys-projects-b34bf7fa.vercel.app/docs): acceso al JSON no disponible en esta comprobación.
-- [Vercel: Deployment Protection](https://vercel.com/docs/deployment-protection).
-- [Google Maps: configuración de clave y facturación](https://developers.google.com/maps/documentation/javascript/get-api-key).
-- [Google Maps: carga de JavaScript](https://developers.google.com/maps/documentation/javascript/load-maps-js-api).
-- [Google Maps: seguridad y restricciones](https://developers.google.com/maps/api-security-best-practices).
-- [Google Maps: marcadores avanzados y Map ID](https://developers.google.com/maps/documentation/javascript/advanced-markers/start).
-- [OSRM: servicios Table y Route](https://project-osrm.org/docs/v5.24.0/api/).
-- [Vite: variables de entorno](https://vite.dev/guide/env-and-mode).
-- [Vite: corrección de acceso a archivos en Windows](https://github.com/vitejs/vite/security/advisories/GHSA-fx2h-pf6j-xcff).
-- [ExcelJS](https://github.com/exceljs/exceljs).
-- [jsPDF](https://github.com/parallax/jsPDF).
+Contrato recuperado y conservado en `backend-openapi.json`. El PDF adjunto se utilizó como referencia y se contrastó con el contrato en vivo.
 
-Consultadas el 17 de octubre de 2026. La cobertura y límites efectivos se describen en `VALIDACION.md`.
+- [API del reto: documentación](https://backend-reto1-log-stica-env-os-olive.vercel.app/docs)
+- [Supabase: validar un usuario con getUser](https://supabase.com/docs/reference/javascript/auth-getuser)
+- [Supabase: seguridad por filas](https://supabase.com/docs/guides/database/postgres/row-level-security)
+- [Vite: variables de entorno y modos](https://vite.dev/guide/env-and-mode)
+- [ExcelJS](https://github.com/exceljs/exceljs)
+- [jsPDF](https://github.com/parallax/jsPDF)
+
+Consulta: 17 de octubre de 2026. Las referencias describen las bibliotecas utilizadas; la cobertura efectiva de las pruebas figura en `VALIDACION.md`.

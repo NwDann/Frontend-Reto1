@@ -1,263 +1,250 @@
-import { useCallback, useEffect, useRef, useState } from "react";
+"use client";
+import React, { useEffect, useRef, useState } from "react";
 import {
   LayoutDashboard,
   Route,
   Package,
+  ShoppingCart,
   MapPin,
   ChartNoAxesCombined,
   Sparkles,
   Building2,
   Truck,
   Settings2,
+  ChevronDown,
   Search,
   Bell,
+  ArrowUpRight,
+  Plus,
+  Check,
+  Leaf,
   ChevronRight,
   LoaderCircle,
   Menu,
   X,
+  CircleHelp,
+  ShieldCheck,
   Database,
-  RefreshCw,
   TriangleAlert,
-  Check,
-  Leaf,
 } from "lucide-react";
-import type {
-  Snapshot,
-  Preferences,
-  Modal,
-  Draft,
-  AppPage,
-} from "./lib/models";
-import { loadSnapshot } from "./services/load";
-import { api } from "./services/api";
-import { config } from "./services/config";
-import { dateTime, validCoords } from "./lib/format";
-import { operationalAlerts } from "./lib/insights";
-import { Badge } from "./components/ui";
-import Overview from "./components/Overview";
-import Inventory from "./components/Inventory";
-import Tracking from "./components/Tracking";
-import Planner from "./components/Planner";
-import Demand from "./components/Demand";
-import Assistant from "./components/Assistant";
-import Settings from "./components/Settings";
-import Alerts from "./components/Alerts";
-import { Fleet, Locations } from "./components/Directory";
-import { DraftEditor } from "./components/Purchases";
-import RecordEditor from "./components/RecordEditor";
+import { State, alerts } from "@/lib/model";
+import {
+  Page,
+  Action,
+  Requester,
+  Badge,
+  download,
+  toCSV,
+} from "./components/ui";
+import {
+  Dashboard,
+  Fleet,
+  Locations,
+  Settings,
+  Suppliers,
+} from "./components/EnterpriseViews";
+import Demand from "./components/DemandClient";
+import EnterpriseModal, {
+  enterpriseModalTypes,
+} from "./components/EnterpriseModal";
+import LogisticsUI from "./components/LogisticsUI";
+import { Inventory, Purchases, Tracking } from "./components/Operations";
+import { Assistant, Alerts } from "./components/Intelligence";
+import ModalView from "./components/ModalView";
+import { request as apiRequest } from "./services/api";
+import { isDemo } from "./services/config";
+import { authClient } from "./services/supabase";
+import { useAuth } from "./auth/AuthProvider";
+import SettingsExtras from "./components/SettingsExtras";
 import ReportDialog from "./components/ReportDialog";
-const names: Record<AppPage, string> = {
+const names: Record<Page, string> = {
   dashboard: "Vista general",
   routes: "Optimización de rutas",
   inventory: "Inventario",
-  purchases: "Compras",
+  purchases: "Solicitudes de compra",
   tracking: "Trazabilidad",
-  points: "Clientes y ubicaciones",
-  fleet: "Personal y vehículos",
   demand: "Predicción de demanda",
   suppliers: "Proveedores",
-  assistant: "Asistente",
-  settings: "Configuración",
+  assistant: "Asistente Nexo",
   alerts: "Centro de alertas",
+  settings: "Configuración",
+  points: "Ubicaciones",
+  fleet: "Gestión de flota",
 };
 const nav = [
-  { id: "dashboard", icon: LayoutDashboard },
-  { id: "routes", icon: Route },
-  { id: "inventory", icon: Package },
-  { id: "tracking", icon: MapPin },
-  { id: "points", icon: Building2 },
-  { id: "fleet", icon: Truck },
-] as const;
+  { id: "dashboard", label: "Vista general", icon: LayoutDashboard },
+  { id: "routes", label: "Optimización de rutas", icon: Route },
+  { id: "inventory", label: "Inventario", icon: Package },
+  { id: "purchases", label: "Compras", icon: ShoppingCart },
+  { id: "tracking", label: "Trazabilidad", icon: MapPin },
+  { id: "points", label: "Ubicaciones", icon: Building2 },
+  { id: "fleet", label: "Gestión de flota", icon: Truck },
+];
 const intelligence = [
-  { id: "demand", icon: ChartNoAxesCombined },
-  { id: "assistant", icon: Sparkles },
-] as const;
-const empty: Snapshot = { errors: {}, loadedAt: {} };
-function initialPreferences(): Preferences {
-  const defaults: Preferences = {
-    origin:
-      config.originLat !== "" &&
-      config.originLng !== "" &&
-      validCoords(Number(config.originLat), Number(config.originLng))
-        ? {
-            lat: Number(config.originLat),
-            lng: Number(config.originLng),
-            name: config.originName,
-          }
-        : null,
-    mapProvider: config.mapProvider as "osm" | "google",
-    timezone: "America/Guayaquil",
-    inventoryBudget: null,
-    targetMargin: 20,
-  };
-  try {
-    const saved = JSON.parse(
-      localStorage.getItem(`optilogic-api-preferences-v2:${config.apiBase}`) ||
-        "null",
-    );
-    if (!saved) return defaults;
-    return {
-      origin:
-        saved.origin && validCoords(saved.origin.lat, saved.origin.lng)
-          ? {
-              ...saved.origin,
-              name: String(saved.origin.name || "Origen configurado"),
-            }
-          : defaults.origin,
-      mapProvider: saved.mapProvider === "google" ? "google" : "osm",
-      timezone:
-        saved.timezone === "Pacific/Galapagos"
-          ? "Pacific/Galapagos"
-          : "America/Guayaquil",
-      inventoryBudget:
-        typeof saved.inventoryBudget === "number" && saved.inventoryBudget > 0
-          ? saved.inventoryBudget
-          : null,
-      targetMargin:
-        typeof saved.targetMargin === "number" &&
-        saved.targetMargin >= 0 &&
-        saved.targetMargin < 100
-          ? saved.targetMargin
-          : 20,
-    };
-  } catch {
-    return defaults;
-  }
-}
+  { id: "demand", label: "Predicción de demanda", icon: ChartNoAxesCombined },
+  { id: "suppliers", label: "Proveedores", icon: ShieldCheck },
+  { id: "assistant", label: "Asistente Nexo", icon: Sparkles },
+];
 export default function App() {
-  const [page, setPage] = useState<AppPage>("dashboard"),
-    [s, setS] = useState<Snapshot>(empty),
-    [loading, setLoading] = useState(true),
-    [loaded, setLoaded] = useState(false),
+  const { session } = useAuth();
+  const [needsCompany, setNeedsCompany] = useState(false),
+    [reports, setReports] = useState(false);
+
+  const [page, setPage] = useState<Page>("dashboard"),
+    [s, setS] = useState<State | null>(null),
+    [companies, setCompanies] = useState<
+      { id: string; name: string; role?: string }[]
+    >([]),
+    [company, setCompany] = useState("cleanpro"),
+    [role, setRole] = useState("Gerencia"),
+    [modal, setModal] = useState<{ type: string; data?: any } | null>(null),
+    [toast, setToast] = useState(""),
+    [error, setError] = useState(""),
     [busy, setBusy] = useState(false),
     [mobile, setMobile] = useState(false),
-    [prefs, setPreferences] = useState(initialPreferences),
-    [modal, setModal] = useState<Modal | null>(null),
-    [reports, setReports] = useState(false),
-    [toast, setToast] = useState<{ text: string; error: boolean } | null>(null),
-    [drafts, setDrafts] = useState<Draft[]>([]),
-    [search, setSearch] = useState(false),
-    [query, setQuery] = useState("");
+    [query, setQuery] = useState(""),
+    [searchOpen, setSearchOpen] = useState(false),
+    [refreshKey, setRefreshKey] = useState(0);
   const seq = useRef(0),
-    writing = useRef(false),
     timer = useRef<ReturnType<typeof setTimeout> | null>(null);
-  const notify = useCallback((text: string, error = false) => {
-    setToast({ text, error });
+  const notify = (text: string) => {
+    setToast(text);
     if (timer.current) clearTimeout(timer.current);
-    timer.current = setTimeout(() => setToast(null), 7000);
-  }, []);
-  const reload = useCallback(async () => {
-    const n = ++seq.current;
-    setLoading(true);
-    try {
-      const data = await loadSnapshot(api);
-      if (n === seq.current) {
-        setS(data);
-        setLoaded(true);
-      }
-    } finally {
-      if (n === seq.current) setLoading(false);
-    }
-  }, []);
-  useEffect(() => {
-    reload();
-    return () => {
-      seq.current++;
-    };
-  }, [reload]);
-  const setPrefs = (next: Preferences) => {
-    setPreferences(next);
-    try {
-      localStorage.setItem(
-        `optilogic-api-preferences-v2:${config.apiBase}`,
-        JSON.stringify(next),
-      );
-    } catch {
-      notify(
-        "No se pudieron guardar las preferencias del navegador. Se conservarán durante esta sesión.",
-        true,
-      );
-    }
+    timer.current = setTimeout(() => setToast(""), 4500);
   };
-  const go = (p: AppPage) => {
+  const request: Requester = (path, body) => apiRequest(company, path, body);
+  useEffect(() => {
+    const n = ++seq.current;
+    setS(null);
+    setError("");
+    setNeedsCompany(false);
+    (async () => {
+      try {
+        const cs = await request("companies");
+        if (n !== seq.current) return;
+        setCompanies(cs);
+        if (!cs.length) {
+          setNeedsCompany(true);
+          return;
+        }
+        if (!cs.some((c: any) => c.id === company)) {
+          setCompany(cs[0].id);
+          return;
+        }
+        const data = await request("state");
+        if (n === seq.current) setS(data);
+      } catch (e) {
+        if (n === seq.current) setError((e as Error).message);
+      }
+    })();
+  }, [company, refreshKey, session?.user.id]);
+  const workspaceRole =
+    companies.find((c) => c.id === company)?.role || "consulta";
+  useEffect(() => {
+    const handler = (e: KeyboardEvent) => {
+      if ((e.ctrlKey || e.metaKey) && e.key === "k") {
+        e.preventDefault();
+        setSearchOpen((v) => !v);
+      }
+      if (e.key === "Escape") {
+        setModal(null);
+        setSearchOpen(false);
+        setMobile(false);
+      }
+    };
+    document.addEventListener("keydown", handler);
+    return () => document.removeEventListener("keydown", handler);
+  }, []);
+  const go = (p: Page) => {
     setPage(p);
     setMobile(false);
     window.scrollTo({ top: 0, behavior: "smooth" });
   };
-  const saved = async () => {
-    notify("Cambio guardado. Actualizando la información…");
-    await reload();
-  };
-  const perform = async (fn: () => Promise<unknown>) => {
-    if (writing.current) return false;
-    writing.current = true;
+  const action: Action = async (name, payload) => {
     setBusy(true);
+    const n = seq.current;
     try {
-      await fn();
-      await saved();
+      const data = await request("action", { action: name, payload });
+      if (n === seq.current) setS(data);
+      notify("Cambios guardados");
       return true;
     } catch (e) {
-      notify((e as Error).message, true);
+      notify((e as Error).message);
       return false;
     } finally {
-      writing.current = false;
       setBusy(false);
     }
   };
-  useEffect(() => {
-    const listener = (e: KeyboardEvent) => {
-      if ((e.ctrlKey || e.metaKey) && e.key === "k") {
-        e.preventDefault();
-        setSearch((v) => !v);
-      }
-      if (e.key === "Escape") {
-        setSearch(false);
-        setReports(false);
-        setMobile(false);
-      }
-    };
-    document.addEventListener("keydown", listener);
-    return () => document.removeEventListener("keydown", listener);
-  }, []);
-  const alertCount = operationalAlerts(s).length,
-    errors = Object.entries(s.errors),
-    allFailed = loaded && !Object.keys(s.loadedAt).length,
-    last = Object.values(s.loadedAt).sort().at(-1);
-  const matches = query.trim()
-    ? [
-        ...(s.items || [])
-          .filter((i) =>
-            (i.nombre + " " + i.id).toLowerCase().includes(query.toLowerCase()),
-          )
-          .map((i) => ({
-            title: i.nombre,
-            text: `Insumo #${i.id} · ${i.stock_actual} ${i.unidad_medida}`,
-            page: "inventory" as AppPage,
-          })),
-        ...(s.points || [])
-          .filter((p) =>
-            (p.nombre_cliente + " " + p.id)
-              .toLowerCase()
-              .includes(query.toLowerCase()),
-          )
-          .map((p) => ({
-            title: p.nombre_cliente,
-            text: `Punto #${p.id} · ${p.zona_reparto || "Sin zona"}`,
-            page: "points" as AppPage,
-          })),
-        ...(s.routes || [])
-          .filter((r) =>
-            (r.codigo_vehiculo + " " + r.id)
-              .toLowerCase()
-              .includes(query.toLowerCase()),
-          )
-          .map((r) => ({
-            title: `Ruta #${r.id}`,
-            text: `${r.codigo_vehiculo} · ${r.estado}`,
-            page: "routes" as AppPage,
-          })),
-      ]
-    : [];
+  const open = (type: string, data?: any) => setModal({ type, data }),
+    pending =
+      s && s.enterprise?.profile.digest !== false
+        ? alerts(s).filter((a) => !s.reviewed.includes(a.id))
+        : [];
+  const exportData = (type: string) => {
+    if (!s) return;
+    const rows =
+      type === "inventory"
+        ? s.items.map((i) => ({
+            codigo: i.id,
+            insumo: i.nombre,
+            categoria: i.categoria,
+            unidad: i.unidad_medida,
+            ubicaciones: s.enterprise?.balances
+              .filter((b) => b.itemId === i.id && b.quantity > 0)
+              .map(
+                (b) =>
+                  `${b.locationId === "warehouse" ? s.warehouse?.nombre_cliente : s.points.find((p) => p.id === b.locationId)?.nombre_cliente}: ${b.quantity} ${i.unidad_medida}`,
+              )
+              .join(" | "),
+            stock: i.stock_actual,
+            minimo: i.stock_minimo,
+            precio: i.precio_unitario,
+          }))
+        : s.movements;
+    download(`${s.company.id}-${type}.csv`, toCSV(rows));
+    notify("Reporte descargado");
+  };
+  const matches =
+    s && query.trim()
+      ? [
+          ...s.items
+            .filter((i) =>
+              (i.nombre + " " + i.id)
+                .toLowerCase()
+                .includes(query.toLowerCase()),
+            )
+            .map((i) => ({
+              title: i.nombre,
+              subtitle: `${i.id} · ${i.stock_actual} ${i.unidad_medida}`,
+              page: "inventory" as Page,
+            })),
+          ...s.points
+            .filter((i) =>
+              (i.nombre_cliente + " " + i.id)
+                .toLowerCase()
+                .includes(query.toLowerCase()),
+            )
+            .map((i) => ({
+              title: i.nombre_cliente,
+              subtitle: `${i.id} · ${i.zona_reparto}`,
+              page: "points" as Page,
+            })),
+          ...s.purchases
+            .filter((i) => i.id.toLowerCase().includes(query.toLowerCase()))
+            .map((i) => ({
+              title: i.id,
+              subtitle: `Compra · ${i.estado}`,
+              page: "purchases" as Page,
+            })),
+          ...s.dispatches
+            .filter((i) => i.id.toLowerCase().includes(query.toLowerCase()))
+            .map((i) => ({
+              title: i.id,
+              subtitle: `Guía · ${i.estado}`,
+              page: "tracking" as Page,
+            })),
+        ]
+      : [];
   return (
     <div className="app-shell">
       {mobile && (
@@ -265,8 +252,8 @@ export default function App() {
       )}
       <aside className={`sidebar ${mobile ? "is-open" : ""}`}>
         <a
-          href="#"
           className="brand"
+          href="#"
           onClick={(e) => {
             e.preventDefault();
             go("dashboard");
@@ -280,41 +267,73 @@ export default function App() {
           <span>
             nexo<span className="brand-period">.</span>
           </span>
-          <span className="brand-tag">OPTILOGIC</span>
+          <span className="brand-tag">SUPPLY</span>
         </a>
         <div className="company-box">
           <div className="company-avatar">
-            <Database size={19} />
+            <Building2 size={19} />
           </div>
           <div>
-            <small>OPERACIÓN EN VIVO</small>
-            <strong>Inventario y rutas</strong>
+            <small>ESPACIO DE TRABAJO</small>
+            <select
+              aria-label="Cambiar empresa"
+              value={company}
+              onChange={(e) => {
+                setCompany(e.target.value);
+                setModal(null);
+              }}
+            >
+              {companies.length ? (
+                companies.map((c) => (
+                  <option key={c.id} value={c.id}>
+                    {c.name}
+                  </option>
+                ))
+              ) : (
+                <option value="cleanpro">CleanPro Servicios</option>
+              )}
+            </select>
           </div>
-          <Badge tone="green">En línea</Badge>
+          <ChevronDown size={14} />
         </div>
+        <button className="add-company" onClick={() => open("company")}>
+          <Plus size={12} />
+          Agregar empresa
+        </button>
         <div className="nav-section-label">OPERACIÓN</div>
         <nav>
-          {nav.map(({ id, icon: Icon }) => (
+          {nav.map(({ id, label, icon: Icon }) => (
             <button
               key={id}
               className={`nav-item ${page === id ? "selected" : ""}`}
-              onClick={() => go(id)}
+              onClick={() => go(id as Page)}
             >
               <Icon size={18} />
-              <span>{names[id]}</span>
+              <span>{label}</span>
+              {id === "inventory" &&
+                s &&
+                s.items.some((i) => i.stock_actual < i.stock_minimo) && (
+                  <span className="nav-counter">
+                    {
+                      s.items.filter((i) => i.stock_actual < i.stock_minimo)
+                        .length
+                    }
+                  </span>
+                )}
             </button>
           ))}
         </nav>
-        <div className="nav-section-label intelligence-label">ANÁLISIS</div>
+        <div className="nav-section-label intelligence-label">INTELIGENCIA</div>
         <nav>
-          {intelligence.map(({ id, icon: Icon }) => (
+          {intelligence.map(({ id, label, icon: Icon }) => (
             <button
-              className={`nav-item ${page === id ? "selected" : ""}`}
               key={id}
-              onClick={() => go(id)}
+              className={`nav-item ${page === id ? "selected" : ""}`}
+              onClick={() => go(id as Page)}
             >
               <Icon size={18} />
-              <span>{names[id]}</span>
+              <span>{label}</span>
+              {id === "assistant" && <span className="new-label">NUEVO</span>}
             </button>
           ))}
         </nav>
@@ -323,12 +342,15 @@ export default function App() {
             <span className="insight-icon">
               <Leaf size={18} />
             </span>
-            <h4>Decisiones con respaldo.</h4>
-            <p>
-              Información actualizada de stock, clientes, personal y rutas para
-              planificar el día.
-            </p>
-            <button onClick={() => go("routes")}>Comparar recorridos ↗</button>
+            <h4>
+              Menos recorridos.
+              <br />
+              Más posibilidades.
+            </h4>
+            <p>Conecta cada decisión con una operación más eficiente.</p>
+            <button onClick={() => go("routes")}>
+              Explorar escenarios <ArrowUpRight size={14} />
+            </button>
           </div>
           <button
             className={`nav-item ${page === "settings" ? "selected" : ""}`}
@@ -338,11 +360,29 @@ export default function App() {
             <span>Configuración</span>
           </button>
           <div className="profile">
-            <span className="profile-avatar">NX</span>
+            <span className="profile-avatar">
+              {s?.enterprise?.profile.name
+                ?.split(" ")
+                .slice(0, 2)
+                .map((x) => x[0])
+                .join("")
+                .toUpperCase() || "NX"}
+            </span>
             <div>
-              <strong>Vista operativa</strong>
-              <span>Logística y despachos</span>
+              <strong>{s?.enterprise?.profile.name || "Mi perfil"}</strong>
+              <span>
+                {s?.enterprise?.profile.position || "Vista por perfil"}
+              </span>
             </div>
+            <select
+              aria-label="Perfil de alertas"
+              value={role}
+              onChange={(e) => setRole(e.target.value)}
+            >
+              {["Gerencia", "Logística", "Bodega", "Compras"].map((r) => (
+                <option key={r}>{r}</option>
+              ))}
+            </select>
           </div>
         </div>
       </aside>
@@ -361,221 +401,300 @@ export default function App() {
             <strong>{names[page]}</strong>
           </div>
           <div className="topbar-right">
-            <button className="global-search" onClick={() => setSearch(true)}>
+            <button
+              className="global-search"
+              onClick={() => setSearchOpen(true)}
+            >
               <Search size={15} />
-              <span>Buscar en los registros</span>
+              <span>Buscar en tu operación</span>
               <kbd>⌘ K</kbd>
             </button>
             <button
               className="btn secondary small"
-              disabled={!loaded || allFailed}
+              disabled={!s}
               onClick={() => setReports(true)}
             >
               Reportes
             </button>
-            <button
-              className="icon-button"
-              disabled={loading || busy}
-              aria-label="Actualizar información"
-              onClick={reload}
-            >
-              <RefreshCw size={18} className={loading ? "spin" : ""} />
-            </button>
+            {!isDemo && (
+              <button
+                className="text-button"
+                onClick={() => authClient?.auth.signOut()}
+              >
+                Salir
+              </button>
+            )}
+            <span className="top-divider" />
             <button
               className="icon-button notification"
-              aria-label={`${alertCount} alertas calculadas`}
+              aria-label={`${pending.length} alertas pendientes`}
               onClick={() => go("alerts")}
             >
-              <Bell size={19} />
-              {alertCount > 0 && <i />}
+              <Bell size={18} />
+              {pending.length > 0 && <i />}
+            </button>
+            <button
+              className="icon-button"
+              aria-label="Ayuda"
+              onClick={() => go("assistant")}
+            >
+              <CircleHelp size={18} />
             </button>
           </div>
         </header>
         <main>
-          <div className="context-line">
-            <span>
-              <span
-                className={`live-dot ${errors.length ? "has-error" : ""}`}
-              />
-              {loading
-                ? "Actualizando información…"
-                : errors.length
-                  ? "Algunos datos no se pudieron cargar"
-                  : "Información actualizada"}
-              <span className="context-separator">/</span>
-              {last ? dateTime(last, prefs.timezone) : "Primera consulta"}
-            </span>
-            <Badge tone={errors.length ? "sand" : "blue"}>
-              {Object.keys(s.loadedAt).length}/8 áreas disponibles
-            </Badge>
-          </div>
-          {busy && <p className="live-note">Guardando cambios…</p>}
-          {allFailed && page !== "settings" ? (
-            <section className="card padded live-connection-error">
-              <TriangleAlert size={34} />
-              <h1>No pudimos cargar la información operativa.</h1>
+          {error ? (
+            <div className="load-error">
+              <TriangleAlert size={32} />
+              <h1>No pudimos abrir tu espacio</h1>
+              <p>{error}</p>
+              <button
+                className="btn primary"
+                onClick={() => setRefreshKey((v) => v + 1)}
+              >
+                Reintentar
+              </button>
+            </div>
+          ) : needsCompany ? (
+            <section className="card padded onboarding">
+              <h1>Conecta tu primera empresa.</h1>
               <p>
-                {errors[0]?.[1] ||
-                  "Revisa tu conexión a internet e intenta de nuevo."}
+                Crea un espacio vacío para empezar a registrar o importar tus
+                datos.
               </p>
-              <div className="row-actions">
-                <button className="btn primary" onClick={reload}>
-                  Reintentar
+              <form
+                onSubmit={async (e) => {
+                  e.preventDefault();
+                  const f = new FormData(e.currentTarget);
+                  setBusy(true);
+                  try {
+                    const data = await request("companies", {
+                      name: f.get("name"),
+                    });
+                    setCompany(data.company.id);
+                    setRefreshKey((v) => v + 1);
+                  } catch (e) {
+                    setError((e as Error).message);
+                  } finally {
+                    setBusy(false);
+                  }
+                }}
+              >
+                <input
+                  name="name"
+                  aria-label="Nombre de empresa"
+                  placeholder="Nombre de tu empresa"
+                  maxLength={100}
+                  required
+                />
+                <button className="btn primary" disabled={busy}>
+                  Crear espacio
                 </button>
-                <button
-                  className="btn secondary"
-                  onClick={() => go("settings")}
-                >
-                  Ver configuración
-                </button>
-              </div>
-              <p className="hint">
-                Mientras no haya conexión no se muestran datos inventados: la
-                pantalla espera a que el servicio responda.
-              </p>
+              </form>
             </section>
-          ) : !loaded ? (
+          ) : !s ? (
             <div className="loading">
-              <LoaderCircle className="spin" size={24} />
-              <p>Consultando catálogo, rutas y despachos…</p>
+              <span className="brand-symbol">
+                <i />
+                <i />
+                <i />
+              </span>
+              <LoaderCircle className="spin" size={23} />
+              <p>Conectando tu operación…</p>
             </div>
           ) : (
-            <div className={loading ? "live-refreshing" : ""}>
+            <>
+              <div className="context-line">
+                <span>
+                  <span className="live-dot" />
+                  {isDemo ? "Demostración local" : "Espacio conectado"}{" "}
+                  <span className="context-separator">/</span>
+                  {s.company.name}
+                </span>
+                <Badge tone={s.company.demo ? "sand" : "green"}>
+                  {s.company.demo
+                    ? "Datos sintéticos de demostración"
+                    : isDemo
+                      ? "Datos locales del navegador"
+                      : "Mi empresa"}
+                </Badge>
+              </div>
               {page === "dashboard" && (
-                <Overview s={s} prefs={prefs} go={go} open={setModal} />
-              )}{" "}
-              {page === "inventory" && (
-                <Inventory s={s} open={setModal} perform={perform} />
-              )}{" "}
+                <Dashboard s={s} go={go} open={open} role={role} />
+              )}
               {page === "routes" && (
-                <Planner
+                <LogisticsUI
+                  key={company}
                   s={s}
-                  prefs={prefs}
-                  setPrefs={setPrefs}
-                  open={setModal}
+                  request={request}
+                  action={action}
+                  open={open}
+                  busy={busy}
                 />
-              )}{" "}
+              )}
+              {page === "inventory" && (
+                <Inventory s={s} open={open} exportData={exportData} />
+              )}
+              {page === "purchases" && (
+                <Purchases s={s} open={open} action={action} busy={busy} />
+              )}
               {page === "tracking" && (
-                <Tracking
-                  s={s}
-                  prefs={prefs}
-                  open={setModal}
-                  perform={perform}
-                />
-              )}{" "}
-              {page === "points" && (
-                <Locations s={s} prefs={prefs} open={setModal} />
-              )}{" "}
-              {page === "fleet" && <Fleet s={s} open={setModal} />}{" "}
-              {page === "demand" && (
-                <Demand s={s} prefs={prefs} open={setModal} />
-              )}{" "}
+                <Tracking s={s} open={open} exportData={exportData} />
+              )}
+              {page === "demand" && <Demand key={company} s={s} open={open} />}
+              {page === "suppliers" && <Suppliers s={s} open={open} />}
+              {page === "fleet" && <Fleet s={s} open={open} />}
+              {page === "points" && <Locations s={s} open={open} />}
               {page === "assistant" && (
-                <Assistant s={s} open={setModal} go={go} />
-              )}{" "}
+                <Assistant
+                  key={company}
+                  request={request}
+                  company={s.company.name}
+                />
+              )}
+              {page === "alerts" && (
+                <Alerts
+                  s={s}
+                  role={role}
+                  setRole={setRole}
+                  action={action}
+                  go={go}
+                  busy={busy}
+                />
+              )}
               {page === "settings" && (
-                <Settings s={s} prefs={prefs} setPrefs={setPrefs} />
-              )}{" "}
-              {page === "alerts" && <Alerts s={s} go={go} />}
-            </div>
+                <>
+                  <Settings key={company} s={s} action={action} busy={busy} />
+                  <SettingsExtras
+                    company={company}
+                    role={workspaceRole}
+                    reload={() => setRefreshKey((v) => v + 1)}
+                  />
+                </>
+              )}
+              <footer className="footer">
+                <span>
+                  <span className="footer-logo">nexo.</span>Cada movimiento
+                  cuenta.
+                </span>
+                <span>
+                  <Database size={11} />
+                  {isDemo
+                    ? "Guardado en este navegador"
+                    : "Guardado en Supabase"}{" "}
+                  ·{" "}
+                  {new Date(s.updatedAt).toLocaleTimeString(
+                    s.enterprise?.profile.locale || "es-EC",
+                    {
+                      hour: "2-digit",
+                      minute: "2-digit",
+                      timeZone:
+                        s.enterprise?.profile.timezone || "America/Guayaquil",
+                    },
+                  )}
+                </span>
+              </footer>
+            </>
           )}
-          <footer className="footer">
-            <span>
-              <span className="footer-logo">nexo.</span>
-              Inventario, rutas y trazabilidad en tiempo real.
-            </span>
-            <span>
-              <Database size={12} />
-              Datos operativos actualizados
-            </span>
-          </footer>
         </main>
       </div>
       {modal &&
-        (modal.kind === "draft" ? (
-          <DraftEditor
-            s={s}
-            itemId={modal.itemId}
-            close={() => setModal(null)}
-            save={(d) => {
-              setDrafts((xs) => [d, ...xs]);
-              notify(
-                "Borrador preparado en esta sesión; descárgalo antes de recargar.",
-              );
-            }}
-          />
-        ) : (
-          <RecordEditor
-            key={JSON.stringify(modal)}
+        s &&
+        (enterpriseModalTypes.includes(modal.type) ? (
+          <EnterpriseModal
+            key={`${company}:${modal.type}:${modal.data?.id || "new"}`}
             modal={modal}
             s={s}
-            prefs={prefs}
             close={() => setModal(null)}
-            saved={saved}
+            action={action}
+            busy={busy}
+            open={open}
+          />
+        ) : (
+          <ModalView
+            key={`${company}:${modal.type}:${modal.data?.id || "new"}`}
+            modal={modal}
+            s={s}
+            close={() => setModal(null)}
+            action={action}
+            request={request}
+            company={company}
+            busy={busy}
+            notify={notify}
+            createCompany={async (name) => {
+              try {
+                const data = await request("companies", { name });
+                setCompanies((c) => [...c, { id: data.company.id, name }]);
+                setCompany(data.company.id);
+                setModal(null);
+                go("dashboard");
+                notify("Empresa creada. Ya puedes agregar tus datos.");
+              } catch (e) {
+                notify((e as Error).message);
+              }
+            }}
           />
         ))}
-      {reports && (
-        <ReportDialog s={s} page={page} close={() => setReports(false)} />
-      )}{" "}
-      {search && (
+      {searchOpen && (
         <div
           className="modal-overlay"
-          onMouseDown={(e) => e.target === e.currentTarget && setSearch(false)}
+          onMouseDown={(e) =>
+            e.target === e.currentTarget && setSearchOpen(false)
+          }
         >
           <div className="search-modal">
             <div className="search-modal-input">
               <Search size={20} />
               <input
                 autoFocus
-                aria-label="Buscar registros"
-                placeholder="Insumo, cliente, vehículo o ID…"
+                placeholder="Busca un insumo, cliente, guía o solicitud…"
                 value={query}
                 onChange={(e) => setQuery(e.target.value)}
               />
               <button
                 className="icon-button"
                 aria-label="Cerrar búsqueda"
-                onClick={() => setSearch(false)}
+                onClick={() => setSearchOpen(false)}
               >
-                <X size={19} />
+                <X size={18} />
               </button>
             </div>
             <div className="search-results">
               {!query ? (
-                <p>Busca en las fuentes consultadas.</p>
+                <p>Encuentra tus registros por nombre o código.</p>
               ) : matches.length ? (
-                matches.slice(0, 15).map((m, i) => (
+                matches.slice(0, 12).map((m, i) => (
                   <button
                     key={i}
                     onClick={() => {
                       go(m.page);
-                      setSearch(false);
+                      setSearchOpen(false);
                       setQuery("");
                     }}
                   >
                     <span>
                       <strong>{m.title}</strong>
-                      <small>{m.text}</small>
+                      <small>{m.subtitle}</small>
                     </span>
-                    <ChevronRight size={16} />
+                    <ArrowUpRight size={15} />
                   </button>
                 ))
               ) : (
-                <p>No encontramos registros con ese texto.</p>
+                <p>No encontramos registros para “{query}”.</p>
               )}
             </div>
           </div>
         </div>
       )}
+      {reports && s && (
+        <ReportDialog s={s} page={page} close={() => setReports(false)} />
+      )}
       {toast && (
-        <div
-          className={`toast ${toast.error ? "live-toast-error" : ""}`}
-          role={toast.error ? "alert" : "status"}
-        >
-          {toast.error ? <TriangleAlert size={18} /> : <Check size={18} />}
-          <span>{toast.text}</span>
-          <button aria-label="Cerrar aviso" onClick={() => setToast(null)}>
-            <X size={15} />
+        <div className="toast" role="status">
+          <Check size={17} />
+          {toast}
+          <button aria-label="Cerrar aviso" onClick={() => setToast("")}>
+            <X size={14} />
           </button>
         </div>
       )}

@@ -1,43 +1,43 @@
 import { useState } from "react";
 import { X, Download } from "lucide-react";
-import type { Snapshot } from "../lib/models";
-import { REPORTS } from "../lib/report-data";
-import type { ReportType } from "../lib/report-data";
-import { config } from "../services/config";
+import type { State } from "../lib/model";
+import { REPORTS } from "../services/report-data";
+import type { ReportType } from "../services/report-data";
 export default function ReportDialog({
   s,
   page,
   close,
 }: {
-  s: Snapshot;
+  s: State;
   page: string;
   close: () => void;
 }) {
   const [type, setType] = useState<ReportType>(
-      (page in REPORTS ? page : "dashboard") as ReportType,
+      (page in REPORTS ? page : "summary") as ReportType,
     ),
     [format, setFormat] = useState<"xlsx" | "pdf" | "csv" | "json">("xlsx"),
     [busy, setBusy] = useState(false),
     [error, setError] = useState("");
   return (
-    <div className="modal-overlay">
+    <div
+      className="modal-overlay"
+      onMouseDown={(e) => e.target === e.currentTarget && !busy && close()}
+    >
       <section
-        className="live-modal modal-box"
+        className="modal-box report-dialog"
         role="dialog"
         aria-modal="true"
         aria-labelledby="report-title"
       >
-        <header className="modal-header">
-          <h2 id="report-title">Exportar datos consultados</h2>
-          <button
-            className="icon-button"
-            aria-label="Cerrar"
-            disabled={busy}
-            onClick={close}
-          >
+        <div className="modal-header">
+          <div>
+            <h2 id="report-title">Exportar reporte</h2>
+            <p>{s.company.name} · Datos actuales del espacio</p>
+          </div>
+          <button className="icon-button" aria-label="Cerrar" onClick={close}>
             <X size={20} />
           </button>
-        </header>
+        </div>
         <form
           className="modal-body"
           onSubmit={async (e) => {
@@ -45,8 +45,8 @@ export default function ReportDialog({
             setBusy(true);
             setError("");
             try {
-              const { exportSnapshot } = await import("../services/reports");
-              await exportSnapshot(s, type, format, config.apiBase);
+              const { exportReport } = await import("../services/reports");
+              await exportReport(s, type, format);
             } catch (e) {
               setError((e as Error).message);
             } finally {
@@ -60,9 +60,9 @@ export default function ReportDialog({
               value={type}
               onChange={(e) => setType(e.target.value as ReportType)}
             >
-              {Object.entries(REPORTS).map(([key, label]) => (
+              {Object.entries(REPORTS).map(([key, title]) => (
                 <option key={key} value={key}>
-                  {label}
+                  {title}
                 </option>
               ))}
             </select>
@@ -73,25 +73,27 @@ export default function ReportDialog({
               value={format}
               onChange={(e) => setFormat(e.target.value as typeof format)}
             >
-              <option value="xlsx">Excel (.xlsx)</option>
-              <option value="pdf">PDF (.pdf)</option>
+              <option value="xlsx">
+                Excel (.xlsx) · hojas, filtros y cifras numéricas
+              </option>
+              <option value="pdf">PDF (.pdf) · tablas paginadas</option>
               <option value="csv">CSV (.csv)</option>
               <option value="json">JSON (.json)</option>
             </select>
           </label>
-          <p className="live-note">
-            Incluye las fechas de consulta y los errores de fuentes. Los
-            borradores de compra y los análisis de rutas se exportan desde sus
-            propias pantallas.
+          <p className="hint">
+            Las exportaciones respetan las unidades registradas e identifican
+            los datos sintéticos. El plan completo conserva además su descarga
+            JSON desde sus detalles.
           </p>
           {error && (
             <p className="form-error" role="alert">
               {error}
             </p>
           )}
-          <button className="btn primary" disabled={busy}>
+          <button autoFocus className="btn primary" disabled={busy}>
             <Download size={16} />
-            {busy ? "Generando…" : "Descargar archivo"}
+            {busy ? "Generando archivo…" : "Descargar reporte"}
           </button>
         </form>
       </section>

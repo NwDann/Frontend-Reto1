@@ -1,31 +1,16 @@
-# Validación de Optilogic 2.0
+# Validación de la entrega
 
-17 de octubre de 2026. Node.js 22.14.0 y npm 11.21.1 en Linux. Los scripts enumeran los archivos de prueba para funcionar también en Windows; no se realizó una ejecución nativa de Windows.
+Fecha: 17 de octubre de 2026. Entorno: Node.js 24.19.0.
 
-## Código y pruebas
+- `npm run build`: TypeScript sin errores y compilación de Vite completada. Vite avisa del tamaño de los paquetes: las bibliotecas de reportes se cargan al solicitar una exportación.
+- `npm test`: 56 pruebas aprobadas, incluidas las 47 pruebas de dominio de la aplicación de referencia.
+- Exportación Excel: lectura del archivo generado con ExcelJS, tipos numéricos, fórmula de valoración y saldos por ubicación.
+- Exportación PDF: firma/formato validado y páginas generadas. Se renderizaron y revisaron visualmente reportes de resumen e inventario.
+- PostgreSQL: migración ejecutada con PGlite, transacciones, revisión optimista, auditoría, permisos SQL, protección del propietario y rechazo de usuarios sin acceso. Matriz de roles contrastada entre servidor y SQL.
+- HTTP: estado del servidor, requisito de autenticación/configuración y rechazo de orígenes no autorizados.
+- API real: `/openapi.json` recuperado de Vercel y Render con contenido idéntico. Consultas GET correctas en `/health`, `/api/insumos`, `/api/puntos-servicio`, `/api/personal` y `/api/kpis/resumen` de Vercel. Sin mutaciones en la API externa.
+- Dependencias de ejecución: `npm audit --omit=dev` sin vulnerabilidades reportadas en la comprobación de esta entrega. Se fijó una sustitución compatible de `uuid` para ExcelJS.
 
-- `npm run build`: TypeScript y Vite 8.0.16 completados. El paquete de reportes es grande y se carga al solicitar una exportación.
-- `npm test`: **29 pruebas aprobadas**. Cubren cliente HTTP, rutas/cuerpos de FastAPI, 401 y HTML de Vercel, 422, fallos de red sin reintentos de escritura, errores por recurso, payloads de insumos/puntos/despachos, stock sin descuento duplicado, fechas de Ecuador y valores opcionales desconocidos.
-- Optimización: carga desde despachos seleccionados, origen independiente, matriz correspondiente a los puntos, precio por costos/margen, cotización externa por km o fija, peajes no duplicados, capacidad y acreditación, bloqueo de cotizaciones cero.
-- Demanda: sin pronósticos fabricados ante poco histórico; semanas cerradas; huecos no convertidos a cero sin cobertura confirmada; validación reservada de cuatro semanas sin fuga de datos.
-- Renderizado de los 11 módulos y Centro de alertas con registros y con fuentes faltantes. El mapa pide cargar al proveedor y OSRM es una elección explícita. Esto no equivale a QA interactivo completo en navegador.
-- Exportaciones: Excel real leído con ExcelJS, números y fórmula de valoración; PDF válido y tablas paginadas; CSV protege texto con apariencia de fórmula. Se renderizó y revisó el PDF de inventario con datos de prueba.
-- Proxy opcional: solo rutas documentadas, upstream fijo, cuerpo enviado una vez y 401 preservado.
-- `npm audit` completo: cero vulnerabilidades reportadas en la comprobación de esta entrega. Vite permanece en la revisión corregida 8.0.16 y se conserva la sustitución compatible de uuid para ExcelJS.
+No se utilizaron credenciales de Supabase del usuario: Auth, Storage y la migración quedan pendientes de una prueba contra su proyecto real después de configurar las variables. Las pruebas SQL locales no sustituyen esa comprobación. No se ejecutaron pruebas de navegador completas en este entorno.
 
-Node 22.14 muestra un aviso experimental al ejecutar TypeScript en las pruebas; los tests pasan con esa función habilitada. Los avisos de dependencias indirectas obsoletas pueden continuar en `npm ci`.
-
-## Comprobaciones reales de API
-
-Origen comprobado: `https://backend-reto1-log-stica-env-os-olive.vercel.app`.
-
-- GET `/openapi.json`, `/health`, insumos, críticos/proyección, puntos de servicio, personal, rutas, despachos, contratos e indicadores: HTTP 200.
-- CORS de lectura para `http://localhost:5173` y OPTIONS de `/api/despachos` para POST JSON: HTTP 200.
-- POST `/api/inventario/calcular-sugerido`: HTTP 200, cálculo coherente con el área y factor enviados. Es un endpoint de cálculo; no se crearon, editaron o eliminaron registros operativos durante las pruebas.
-- La URL preview nueva no permitió recuperar JSON: primeros intentos HTTP 401 y posteriormente HTML/redirección de acceso. Se documenta esa limitación; no se afirma haber validado sus registros o la equivalencia de su base de datos.
-
-## Mapas y límite de verificación
-
-La revisión automática rechazó una consulta de prueba de OSRM porque enviaba coordenadas del backend a un tercero. Se continuó con una alternativa de menor exposición: matrices y respuestas controladas con coordenadas de prueba, sin repetir esa consulta empresarial. No se comprobó una ruta vial en vivo con esas ubicaciones.
-
-El producto carga mapas externos solo tras la elección del usuario y permite habilitar explícitamente el envío de origen/destinos a OSRM. No se contó con una clave Google Maps: clave, facturación y dominios autorizados requieren una comprobación en el proyecto del usuario. Las pruebas verifican la estructura de integración y los controles; no certifican esa autorización externa.
+El código de dominio procede del proyecto Nexo, revisión `c5502a1d97d064e09457e68f9050dd2514ba2cdd`. Se conservaron las reglas y se adaptaron las capas de conexión, autenticación, archivos y reportes. Esta entrega no publica cambios en el sitio existente.
