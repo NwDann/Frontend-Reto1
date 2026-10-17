@@ -1,0 +1,6 @@
+import {readFile,writeFile} from 'node:fs/promises';
+const spec=JSON.parse(await readFile(new URL('../docs/backend-openapi.json',import.meta.url),'utf8'));
+const ident=s=>/^[A-Za-z_$][\w$]*$/.test(s)?s:JSON.stringify(s);
+function type(s={}){if(s.$ref)return s.$ref.split('/').at(-1);if(s.enum)return s.enum.map(v=>JSON.stringify(v)).join(' | ');if(s.anyOf)return s.anyOf.map(type).join(' | ');if(s.allOf)return s.allOf.map(type).join(' & ');if(s.type==='null')return 'null';if(s.type==='integer'||s.type==='number')return 'number';if(s.type==='boolean')return 'boolean';if(s.type==='string')return 'string';if(s.type==='array')return `Array<${type(s.items)}>`;if(s.type==='object'||s.properties){const props=Object.entries(s.properties||{}).map(([k,v])=>`${ident(k)}${s.required?.includes(k)?'':'?'}: ${type(v)};`).join('\n');return `{\n${props}\n${s.additionalProperties?'[key: string]: unknown;':''}\n}`;}return 'unknown';}
+const text='/** Generated from docs/backend-openapi.json by npm run api:types. Do not edit manually. */\n'+Object.entries(spec.components.schemas).map(([name,s])=>`export type ${name} = ${type(s)};`).join('\n\n')+'\n';
+await writeFile(new URL('../src/services/backend.types.ts',import.meta.url),text);
