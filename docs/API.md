@@ -1,66 +1,68 @@
-# Contratos y persistencia
+# Contrato real y alcance del frontend 2.0
 
-## Backend del reto (existente)
+El PDF API Logística(2).pdf se contrastó con el OpenAPI recuperado de la URL pública de Vercel. La URL preview solicitada no entregó un contrato JSON accesible (401/HTML de acceso), por lo que no se presume acceso a su base de datos. El origen se configura en `.env`; no hay cambio automático a otro servidor.
 
-La copia OpenAPI fue descargada de `/openapi.json` de las dos direcciones suministradas y ambas eran idénticas. La API expone:
+## Endpoints usados
 
-| Recurso | Métodos documentados |
+| Recurso | Operaciones de la interfaz |
 | --- | --- |
-| `/api/insumos` | GET, POST |
-| `/api/insumos/{id}` | GET, PATCH, DELETE |
-| `/api/insumos/criticos-y-proyeccion` | GET |
-| `/api/inventario/calcular-sugerido` | POST |
-| `/api/puntos-servicio`, `/api/personal`, `/api/rutas`, `/api/despachos`, `/api/contratos` | GET, POST |
-| Cada recurso anterior `/{id}` | GET, PATCH, DELETE |
-| `/api/personal/validar-acreditacion` | GET |
-| `/api/rutas/{id}/estado` | PATCH con JSON `{estado, notas_imprevisto?, tiene_adenda?}` |
-| `/api/despachos/{id}/apurar-produccion` | PATCH |
-| `/api/kpis/resumen` | GET |
-| `/health` | GET |
+| `/api/insumos` y `/{id}` | Lista, crear, editar ficha, conciliación directa de stock y eliminar |
+| `/api/insumos/criticos-y-proyeccion` | Riesgos y déficit publicados por el backend |
+| `/api/inventario/calcular-sugerido` | POST de cálculo por área: punto, insumo, consumo opcional |
+| `/api/puntos-servicio` y `/{id}` | Lista, crear, editar y eliminar puntos |
+| `/api/personal` y `/{id}` | Lista, crear, editar y eliminar personal |
+| `/api/personal/validar-acreditacion` | Filtro de acreditados y disponibles |
+| `/api/rutas` y `/{id}` | Lista, detalle, crear y editar operación de ruta |
+| `/api/rutas/{id}/estado` | PATCH con estado, notas de imprevisto y bandera de adenda |
+| `/api/despachos` y `/{id}` | Lista, detalle, crear, actualizar campos permitidos y eliminar |
+| `/api/despachos/{id}/apurar-produccion` | PATCH para prioridad de producción |
+| `/api/contratos` y `/{id}` | Lista, crear, editar y eliminar contrato |
+| `/api/kpis/resumen` | Indicadores publicados, con su interpretación real |
+| `/health` | Prueba de disponibilidad del backend |
 
-OpenAPI no declara esquemas de seguridad ni compras, proveedores, miembros, flota, archivos o planes con instantáneas. En el contrato recuperado, `DespachoCreate.descontar_stock` vale `true` por defecto. Los formularios propios de Nexo no se envían directamente a estos endpoints: de hacerlo se perderían campos y se podrían descontar existencias dos veces. `LogisticsApi` es un SDK independiente que sigue los DTO de `backend.types.ts`.
+No existen `/api/state`, `/api/action`, empresas, compras, proveedores, carga de documentos o miembros en la interfaz de esta versión. `src/services/client.ts` contiene el cliente tipado; `src/services/backend.types.ts` se genera de `docs/backend-openapi.json` con `npm run api:types`.
 
-La importación inicial transforma identificadores en `API-INS-{id}`, `API-PS-{id}` y `API-PER-{id}`. No transforma cantidades ni unidades. Rechaza coordenadas ausentes. Conserva como desconocidos el vencimiento del stock, contenido de agrupaciones y fecha de acreditación. El stock importado se asigna a bodega central como saldo inicial; revisa y distribuye ubicaciones físicas antes de operar.
+## Ejemplo: nuevo despacho
 
-## API complementaria incluida
+```json
+{
+  "punto_servicio_id": 2,
+  "fecha_programada": "2026-10-17T13:00:00.000Z",
+  "ruta_id": null,
+  "costo_envio": 10,
+  "detalles": [
+    { "insumo_id": 1, "cantidad_solicitada": 2, "es_promocion": false }
+  ],
+  "descontar_stock": true
+}
+```
 
-Base local `/api`; todas las peticiones incluyen `Authorization: Bearer <JWT de Supabase>`. Excepto empresas, llevan `?company=<UUID>`.
+Los IDs del ejemplo son ilustrativos: los formularios utilizan los que realmente devuelve el backend. `descontar_stock` se envía solo al crear. PATCH de despacho admite ruta, fechas, estado de producción y costo; no incluye detalles ni un nuevo descuento de existencias. Las fechas se convierten de la zona horaria elegida a ISO UTC.
 
-| Ruta | Método | Resultado / cuerpo |
-| --- | --- | --- |
-| `companies` | GET / POST | Empresas accesibles y rol / crear `{name}` |
-| `state` | GET | Estado completo del espacio |
-| `action` | POST | `{action,payload}`; valida reglas y devuelve estado confirmado |
-| `logistics/compare` | POST | `{points,inputs,matrix?}`; deriva datos de flota y compara |
-| `assistant` | POST | `{query}`; respuesta y referencias estructuradas |
-| `upload` | POST | FormData `file`, máximo 8 MB; `{id,name}` |
-| `files/{id}` | GET | Documento privado del mismo espacio |
-| `members` | GET | Miembros, solo administración |
-| `members/save` | POST | `{email,role}` de una cuenta confirmada existente |
-| `members/remove` | POST | `{userId}`; no modifica propietario ni a sí mismo |
-| `legacy/preview` | GET | Catálogo, puntos, personal y huella del origen configurado |
-| `legacy/import` | POST | `{fingerprint}`; importación inicial atómica, solo administración |
+## Datos insuficientes para otros requerimientos iniciales
 
-Errores del servidor: `{error: string}` con HTTP 400/401/403/404/409/413/500/503. No se reintentan automáticamente escrituras ni se cambia a otro servidor después de una respuesta ambigua.
-
-## Permisos de escritura
-
-| Rol | Alcance |
+| Requerimiento | Ampliación necesaria |
 | --- | --- |
-| owner | Todas las acciones del espacio; gestión de administradores |
-| admin | Todas las acciones; usuarios operativos, sin modificar propietario u otros administradores |
-| gerencia | Parámetros financieros, perfil del espacio y revisión de alertas |
-| logistica | Planes, ejecución de rutas, ubicaciones, guías, responsables, flota, personal, gastos, viajes, peajes y alertas |
-| bodega | Insumos, históricos, recepción de compras, confirmación de guías, traslados, responsables y alertas |
-| compras | Solicitudes y estados previos a recepción, proveedores, catálogos, evaluaciones y alertas |
-| consulta | Lectura, reportes y consultas; sin modificaciones |
+| Solicitudes de compra, aprobación y recepción | Entidades/endpoints de compras y recepciones con actualización transaccional de stock |
+| Proveedores, catálogos y riesgo | Directorio y relaciones proveedor-insumo; evaluaciones vinculadas a operaciones cerradas |
+| Lotes, vencimientos, balances por bodega y rotación | Movimientos/lotes, ubicaciones de stock y consumo histórico contable |
+| Cantidad despachada vs entregada, receptor y documentos | Campos/operaciones de confirmación y almacenamiento de guías |
+| Vehículos activos, obligaciones, gastos y odómetro | Catálogo de flota y mantenimiento; rutas no reemplazan esa entidad |
+| Planes optimizados guardados íntegros | Origen, destinos ordenados, geometría, parámetros, costos e instantáneas por plan |
+| Clientes futuros, oficinas, plantas y contacto | Tipo de ubicación, datos de contacto, estado prospecto y próxima visita |
+| Usuarios y permisos | Autenticación, validación de tokens y autorización en los endpoints del backend |
+| Predicción de consumo real | Series de consumo/servicios por cliente y cobertura histórica confirmada |
 
-Los miembros pueden leer los registros operativos completos de su espacio. No se implementa ocultación de columnas o precios por rol. `server/permissions.mjs` controla las acciones; `nexo_commit` vuelve a comprobar rol y acción dentro de la transacción. Cambiar el selector visual de alertas no concede permisos.
+El frontend no acepta un formulario y luego muestra éxito fingiendo que esa información se guardó donde no existe un endpoint. Sus borradores y cálculos locales están identificados como tales.
 
-## Supabase
+## Semántica de indicadores
 
-`nexo_workspaces` conserva el estado JSON de la lógica original, con revisión optimista; `nexo_memberships` controla accesos; `nexo_documents` referencia objetos privados; `nexo_audit` registra acciones. RLS permanece activado y no existen permisos directos de lectura/escritura para anon o authenticated sobre estas tablas. Solo el servidor con clave privada las usa después de validar al usuario.
+La consulta real de `kpis/resumen` identifica `mermas_detalle.nota` como un proxy basado en stock por debajo del mínimo. `rentabilidad_por_ruta` devuelve rutas con valor mayor/igual al umbral USD y porcentaje de cumplimiento. No se convierten esos resultados en utilidad o merma física.
 
-No es una migración a tablas normalizadas de cada entidad. Se conserva este almacenamiento por espacio para mantener el comportamiento original y sus invariantes. Los documentos y las cuentas están separados del JSON. La importación del backend no implica replicación continua ni garantiza que el backend existente aplique sus propios permisos: esa configuración corresponde a su propietario.
+## Fallos, permisos y concurrencia
 
-El alta de usuarios y recuperación de contraseña se delegan a Supabase Auth; los límites de registro y envío de correo se configuran en Supabase. El servidor no expone una clave privada ni acepta un rol proporcionado por el navegador como autorización.
+No hay reintentos automáticos de POST/PATCH/DELETE. Si la respuesta se pierde, la operación puede haberse aplicado: el mensaje pide actualizar antes de repetir. Los errores 422 muestran el campo que reporta FastAPI. Un error parcial deja esa fuente sin datos, con su error; no genera datos sintéticos.
+
+El cliente comprueba la presencia de los números que utiliza para valorar inventario y carga. No sustituye un stock ausente por cero. Los tipos autogenerados siguen el esquema; las comprobaciones adicionales están en `validateRecord`.
+
+La aplicación no implementa transacciones o permisos que correspondan al backend. El Swagger no declara autenticación. La protección del despliegue de Vercel y el filtrado visual por área no equivalen a roles de usuarios de la app. Configura autenticación/autorización en el backend antes de tratar ese requisito como implementado.

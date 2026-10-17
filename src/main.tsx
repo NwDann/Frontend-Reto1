@@ -1,7 +1,6 @@
 import React from "react";
 import { createRoot } from "react-dom/client";
 import App from "./App";
-import AuthProvider from "./auth/AuthProvider";
 import "leaflet/dist/leaflet.css";
 import "./index.css";
 class ErrorBoundary extends React.Component<
@@ -13,27 +12,25 @@ class ErrorBoundary extends React.Component<
     return { error: error.message };
   }
   render() {
-    if (this.state.error)
-      return (
-        <div className="auth-screen">
-          <div className="auth-card">
-            <h1>No pudimos abrir esta vista</h1>
-            <p>{this.state.error}</p>
-            <button className="btn primary" onClick={() => location.reload()}>
-              Recargar aplicación
-            </button>
-          </div>
+    return this.state.error ? (
+      <div className="auth-screen">
+        <div className="auth-card">
+          <h1>No pudimos abrir esta vista</h1>
+          <p>{this.state.error}</p>
+          <button className="btn primary" onClick={() => location.reload()}>
+            Volver a consultar
+          </button>
         </div>
-      );
-    return this.props.children;
+      </div>
+    ) : (
+      this.props.children
+    );
   }
 }
 createRoot(document.getElementById("root")!).render(
   <React.StrictMode>
     <ErrorBoundary>
-      <AuthProvider>
-        <App />
-      </AuthProvider>
+      <App />
     </ErrorBoundary>
   </React.StrictMode>,
 );
